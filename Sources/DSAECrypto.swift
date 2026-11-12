@@ -74,6 +74,13 @@ enum DSAECrypto {
         Data(SHA256.hash(data: data))
     }
 
+    static func humanSize(_ bytes: Int) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useKB, .useMB, .useGB]
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: Int64(bytes))
+    }
+
     // MARK: - 密钥
 
     static func deriveKey(password: String, salt: Data) -> SymmetricKey? {

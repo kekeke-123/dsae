@@ -49,7 +49,7 @@ struct FileCryptView: View {
                         }
                     }
                     .pickerStyle(.segmented)
-                    .onChange(of: task) { _ in
+                    .onChange(of: task) {
                         self.resultURL = nil
                         self.resultNote = ""
                         self.verifyResult = nil
