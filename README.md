@@ -1,23 +1,19 @@
 # DSAE
 
-Dynamic Semantic Autoencoder — 纯本地 iOS 文本/文件加密器。
+Dynamic Semantic Autoencoder — 纯本地 iOS 文本 / 文件加密器。最低系统 iOS 26，界面适配 Liquid Glass。
+
+## 功能
+
+- 首次启动必须设置口令：至少 4 位，只能数字或英文字母，禁止全同、顺子（1234 / abcd / 9876）和重复片段（1212 / abab）
+- 文件加密：`file.txt` → `file.dsaetxt`，还原时去掉 `.dsae` 恢复原名
+- 文本加密：输出十六进制密文（不使用 Base64）
+- 随机加密：随机密钥用完即丢，产物不可还原，只用于验证文件是否被改动
+- 面容 ID 解锁；连续 7 天没用过口令时强制输入一次口令
+- 修改口令后，旧文件仍可用保留的旧口令自动还原
 
 ## 技术
 
-- 口令派生：PBKDF2-HMAC-SHA256，120,000 次迭代，16 字节随机盐
-- 加密：AES-256-GCM（CryptoKit，带认证）
-- 文件格式：`DSAE1` + salt(16) + nonce + 密文 + tag
-- 文本格式：`DSAE1-` + Base64
-- 无网络代码、无第三方依赖、不收集任何数据
-
-## 构建（GitHub Actions）
-
-推送 `main` 或手动触发 `Build unsigned IPA`，产物为未签名 `DSAE.ipa`。
-
-本地构建：
-
-```bash
-brew install xcodegen
-xcodegen generate
-xcodebuild -project DSAE.xcodeproj -scheme DSAE -configuration Release -sdk iphoneos CODE_SIGNING_ALLOWED=NO build
-```
+- PBKDF2-HMAC-SHA256（120,000 次迭代，16 字节随机盐）
+- AES-256-GCM（CryptoKit）
+- 产物头：`DSAE` + 版本 + 模式 + 原扩展名 + 盐 + SHA-256 指纹 + 密文
+- 无网络代码、无第三方依赖
