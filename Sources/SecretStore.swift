@@ -5,7 +5,11 @@ import Security
 enum SecretStore {
 
     static func set(_ value: String, _ account: String) {
-        if Keychain.set(value, for: account) { return }
+        if Keychain.set(value, for: account) {
+            // 钥匙串写入成功时，清掉可能存在的旧降级文件，避免读到过期值。
+            try? FileManager.default.removeItem(at: fileURL(account))
+            return
+        }
         writeFile(value, account)
     }
 

@@ -35,6 +35,10 @@ struct TextCryptView: View {
                     }
                     .pickerStyle(.segmented)
                     .padding(.horizontal, 2)
+                    .onChange(of: direction) {
+                        self.output = ""
+                        self.errorMessage = nil
+                    }
 
                     GlassCard {
                         VStack(alignment: .leading, spacing: 10) {

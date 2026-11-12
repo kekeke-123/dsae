@@ -28,7 +28,7 @@ struct FileCryptView: View {
 
     @State private var resultURL: URL?
     @State private var resultNote = ""
-    @State private var verifyResult: Bool?
+    @State private var verifyReport: VerifyResult?
 
     @State private var busy = false
     @State private var errorMessage: String?
@@ -52,7 +52,7 @@ struct FileCryptView: View {
                     .onChange(of: task) {
                         self.resultURL = nil
                         self.resultNote = ""
-                        self.verifyResult = nil
+                        self.verifyReport = nil
                         self.errorMessage = nil
                     }
 
@@ -66,7 +66,7 @@ struct FileCryptView: View {
                                 .pickerStyle(.segmented)
 
                                 Text(randomMode
-                                     ? "随机密钥用完即丢弃：这份产物无法还原，只能用来验证文件是否被改过。"
+                                     ? "随机密钥用完即丢弃：产物无法还原，只能拿去验证文件有没有被改。"
                                      : "用当前口令加密，随时可以用口令还原。")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
@@ -77,12 +77,18 @@ struct FileCryptView: View {
                     if task == .verify {
                         GlassCard {
                             VStack(alignment: .leading, spacing: 12) {
-                                Text("选择一个 .dsae 产物，再选一个文件，检查它是不是那份原始文件。")
+                                Text("把产物和原文件一起发给对方，对方在这个 App 里选两份文件比对。验证只用指纹，不需要口令。")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
 
-                                pickRow(title: "产物", url: sealedURL) { showSealedPicker = true }
-                                pickRow(title: "对比的文件", url: candidateURL) { showCandidatePicker = true }
+                                pickRow(title: "DSAE 产物", url: sealedURL) { showSealedPicker = true }
+                                pickRow(title: "要对比的文件（可选）", url: candidateURL) { showCandidatePicker = true }
+
+                                Text(candidateURL == nil
+                                     ? "只选了产物：会检查产物本身有没有损坏。再选一个文件，才能判断内容是否被篡改。"
+                                     : "两份都选好了：可以判断内容是「一致」还是「被篡改」。")
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
                             }
                         }
                     } else {
@@ -97,7 +103,7 @@ struct FileCryptView: View {
 
                                 Text(task == .encode
                                      ? "命名规则：file.txt → file.dsaetxt"
-                                     : "还原时会把 .dsae 去掉，恢复成原来的名字。")
+                                     : "还原时会去掉 .dsae，恢复成原来的名字。")
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
                             }
@@ -125,20 +131,8 @@ struct FileCryptView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
 
-                    if let verifyResult {
-                        GlassCard {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Label(verifyResult ? "一致" : "不一致",
-                                      systemImage: verifyResult ? "checkmark.seal.fill" : "xmark.seal.fill")
-                                    .font(.headline)
-                                    .foregroundStyle(verifyResult ? Color.green : Color.red)
-                                Text(verifyResult
-                                     ? "这份文件和产物记录的内容完全相同。"
-                                     : "这份文件和产物记录的内容不同，可能被改过或不是同一个文件。")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
+                    if let report = verifyReport {
+                        verdictCard(report)
                     }
 
                     if let resultURL {
@@ -157,7 +151,7 @@ struct FileCryptView: View {
                                 Button {
                                     showExport = true
                                 } label: {
-                                     Label("保存到「文件」", systemImage: "square.and.arrow.down")
+                                    Label("保存到「文件」", systemImage: "square.and.arrow.down")
                                         .frame(maxWidth: .infinity)
                                 }
                                 .buttonStyle(.glass)
@@ -178,7 +172,7 @@ struct FileCryptView: View {
                     self.sourceURL = url
                     self.resultURL = nil
                     self.resultNote = ""
-                    self.verifyResult = nil
+                    self.verifyReport = nil
                 }
             }
             .sheet(isPresented: $showSealedPicker) {
@@ -186,7 +180,7 @@ struct FileCryptView: View {
                     self.showSealedPicker = false
                     guard let url else { return }
                     self.sealedURL = url
-                    self.verifyResult = nil
+                    self.verifyReport = nil
                 }
             }
             .sheet(isPresented: $showCandidatePicker) {
@@ -194,7 +188,7 @@ struct FileCryptView: View {
                     self.showCandidatePicker = false
                     guard let url else { return }
                     self.candidateURL = url
-                    self.verifyResult = nil
+                    self.verifyReport = nil
                 }
             }
             .sheet(isPresented: $showExport) {
@@ -211,6 +205,72 @@ struct FileCryptView: View {
         }
     }
 
+    // MARK: - 结论卡片
+
+    @ViewBuilder
+    private func verdictCard(_ report: VerifyResult) -> some View {
+        let isSelfCheck = candidateURL == nil
+        GlassCard {
+            VStack(alignment: .leading, spacing: 12) {
+                Label(verdictTitle(report.kind, selfCheck: isSelfCheck),
+                      systemImage: verdictIcon(report.kind))
+                    .font(.headline)
+                    .foregroundStyle(verdictColor(report.kind))
+
+                Text(report.detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Divider()
+
+                HStack {
+                    Text("产物记录指纹")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text(report.storedFingerprint)
+                        .font(.system(.caption, design: .monospaced))
+                }
+                HStack {
+                    Text(isSelfCheck ? "密文指纹" : "这份文件指纹")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text(report.fileFingerprint)
+                        .font(.system(.caption, design: .monospaced))
+                }
+
+                Text("指纹取 SHA-256 前 8 位，可直接肉眼核对。")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+    }
+
+    private func verdictTitle(_ kind: VerifyKind, selfCheck: Bool) -> String {
+        switch kind {
+        case .identical: return selfCheck ? "完好" : "一致"
+        case .tampered: return "篡改"
+        case .damaged: return "损坏"
+        }
+    }
+
+    private func verdictIcon(_ kind: VerifyKind) -> String {
+        switch kind {
+        case .identical: return "checkmark.seal.fill"
+        case .tampered: return "exclamationmark.triangle.fill"
+        case .damaged: return "xmark.seal.fill"
+        }
+    }
+
+    private func verdictColor(_ kind: VerifyKind) -> Color {
+        switch kind {
+        case .identical: return .green
+        case .tampered: return .orange
+        case .damaged: return .red
+        }
+    }
+
     // MARK: - 状态
 
     private var canRun: Bool {
@@ -218,7 +278,7 @@ struct FileCryptView: View {
         case .encode, .restore:
             return sourceURL != nil
         case .verify:
-            return sealedURL != nil && candidateURL != nil
+            return sealedURL != nil
         }
     }
 
@@ -260,7 +320,7 @@ struct FileCryptView: View {
 
     private func perform() {
         errorMessage = nil
-        verifyResult = nil
+        verifyReport = nil
         resultURL = nil
         resultNote = ""
 
@@ -272,7 +332,7 @@ struct FileCryptView: View {
             busy = true
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
-                    let plain = try Self.readData(url)
+                    let plain = try Self.readData(url, limit: DSAECrypto.maxBytes)
                     let payload: Data
                     if useRandom {
                         payload = try DSAECrypto.sealRandom(plain: plain, ext: url.pathExtension)
@@ -285,7 +345,7 @@ struct FileCryptView: View {
                         self.busy = false
                         self.resultURL = output
                         self.resultNote = useRandom
-                            ? "\(DSAECrypto.humanSize(payload.count)) · 随机加密，不可还原"
+                            ? "\(DSAECrypto.humanSize(payload.count)) · 随机加密，不可还原，可验证"
                             : "\(DSAECrypto.humanSize(payload.count)) · 口令加密"
                         self.showToast("已生成 \(name)")
                     }
@@ -303,10 +363,17 @@ struct FileCryptView: View {
             busy = true
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
-                    let payload = try Self.readData(url)
+                    let payload = try Self.readData(url, limit: DSAECrypto.maxBytes * 2)
                     let opened = try DSAECrypto.open(payload, candidates: candidates)
-                    let name = DSAECrypto.restoredName(fromSealed: url.lastPathComponent)
-                        ?? Self.fallbackName(ext: opened.ext)
+                    let baseName = DSAECrypto.baseName(fromSealed: url.lastPathComponent)
+                    let name: String
+                    if let restored = DSAECrypto.restoredName(fromSealed: url.lastPathComponent) {
+                        name = restored
+                    } else if opened.ext.isEmpty {
+                        name = baseName
+                    } else {
+                        name = baseName + "." + opened.ext
+                    }
                     let output = try Self.writeTemp(opened.data, name: name)
                     DispatchQueue.main.async {
                         self.busy = false
@@ -323,16 +390,22 @@ struct FileCryptView: View {
             }
 
         case .verify:
-            guard let sealed = sealedURL, let candidate = candidateURL else { return }
+            guard let sealed = sealedURL else { return }
+            let candidate = candidateURL
             busy = true
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
-                    let payload = try Self.readData(sealed)
-                    let data = try Self.readData(candidate)
-                    let same = try DSAECrypto.matches(payload, candidate: data)
+                    let payload = try Self.readData(sealed, limit: DSAECrypto.maxBytes * 2)
+                    let report: VerifyResult
+                    if let candidate {
+                        let data = try Self.readData(candidate, limit: DSAECrypto.maxBytes * 2)
+                        report = DSAECrypto.verify(payload, candidate: data)
+                    } else {
+                        report = DSAECrypto.selfCheck(payload)
+                    }
                     DispatchQueue.main.async {
                         self.busy = false
-                        self.verifyResult = same
+                        self.verifyReport = report
                     }
                 } catch {
                     DispatchQueue.main.async {
@@ -353,13 +426,13 @@ struct FileCryptView: View {
 
     // MARK: - 工具
 
-    private static func readData(_ url: URL) throws -> Data {
+    private static func readData(_ url: URL, limit: Int) throws -> Data {
         let values = try url.resourceValues(forKeys: [.fileSizeKey])
-        if let size = values.fileSize, size > DSAECrypto.maxBytes * 2 {
+        if let size = values.fileSize, size > limit {
             throw DSAEError.tooLarge
         }
         let data = try Data(contentsOf: url)
-        guard data.count <= DSAECrypto.maxBytes * 2 else { throw DSAEError.tooLarge }
+        guard data.count <= limit else { throw DSAEError.tooLarge }
         return data
     }
 
@@ -368,12 +441,5 @@ struct FileCryptView: View {
         try? FileManager.default.removeItem(at: url)
         try data.write(to: url, options: .atomic)
         return url
-    }
-
-    private static func fallbackName(ext: String) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyyMMdd-HHmmss"
-        let stamp = formatter.string(from: Date())
-        return ext.isEmpty ? "DSAE-还原-\(stamp).bin" : "DSAE-还原-\(stamp).\(ext)"
     }
 }

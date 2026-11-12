@@ -61,6 +61,10 @@ final class Vault: ObservableObject {
     }
 
     func unlockWithBiometrics() async -> String? {
+        // 7 天没用过口令时，面容 ID 不允许绕过，必须先输入一次口令。
+        if requiresPasswordRefresh {
+            return "已 \(daysSincePassword) 天没有输入口令，本次必须手动输入口令。"
+        }
         let context = LAContext()
         var policyError: NSError?
         guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &policyError) else {

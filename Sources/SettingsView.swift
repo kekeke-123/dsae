@@ -78,7 +78,8 @@ struct SettingsView: View {
                             infoRow("文本格式", "十六进制（不使用 Base64）")
                             infoRow("文件命名", "file.txt → file.dsaetxt")
                             infoRow("随机加密", "随机密钥用完即丢，产物不可还原，只能验证")
-                            infoRow("指纹", "SHA-256（原文），写在产物头部")
+                            infoRow("验证结论", "一致 / 篡改（内容被改） / 损坏（结构或密文被改）")
+                            infoRow("指纹", "SHA-256（原文）写在头部，头部与密文各有 8 字节校验")
                         }
                     }
 
