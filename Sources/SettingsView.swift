@@ -57,7 +57,9 @@ struct SettingsView: View {
 
                             Divider()
 
-                            Text("已 \(vault.daysSincePassword) 天没有输入口令，还有 \(vault.daysUntilRefresh) 天需要重新输入一次。")
+                            Text(vault.lastPasswordDate == nil
+                                 ? "还没有口令输入记录，下次解锁必须输入口令。"
+                                 : "已 \(vault.daysSincePassword) 天没有输入口令，还有 \(vault.daysUntilRefresh) 天需要重新输入一次。")
                                 .font(.caption)
                                 .foregroundStyle(vault.requiresPasswordRefresh ? .red : .secondary)
 
@@ -77,6 +79,7 @@ struct SettingsView: View {
                             infoRow("加密", "AES-256-GCM，带认证，改一位就无法还原")
                             infoRow("文本格式", "十六进制（不使用 Base64）")
                             infoRow("文件命名", "file.txt → file.dsaetxt")
+                            infoRow("批量", "整文件夹加密 / 还原，单次上限 2000 个文件")
                             infoRow("随机加密", "随机密钥用完即丢，产物不可还原，只能验证")
                             infoRow("验证结论", "一致 / 篡改（内容被改） / 损坏（结构或密文被改）")
                             infoRow("指纹", "SHA-256（原文）写在头部，头部与密文各有 8 字节校验")

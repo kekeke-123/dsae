@@ -42,6 +42,10 @@ final class Vault: ObservableObject {
     func createPassword(_ value: String) -> String? {
         if let problem = PasswordPolicy.problem(with: value) { return problem }
         SecretStore.set(value, Keys.password)
+        // 必须确认真的落盘，否则下次启动会退回设置页，之前加密的东西就打不开了。
+        guard SecretStore.get(Keys.password) == value else {
+            return "口令没能写入本机存储，请重试一次。"
+        }
         password = value
         markPasswordUsed()
         phase = .unlocked
@@ -98,7 +102,8 @@ final class Vault: ObservableObject {
     }
 
     var daysUntilRefresh: Int {
-        max(0, 7 - daysSincePassword)
+        guard lastPasswordDate != nil else { return 0 }
+        return max(0, 7 - daysSincePassword)
     }
 
     func markPasswordUsed() {
@@ -113,10 +118,16 @@ final class Vault: ObservableObject {
         if let problem = PasswordPolicy.problem(with: newValue) { return problem }
         guard let old = SecretStore.get(Keys.password) else { return "本机没有保存口令。" }
         if old == newValue { return "新口令和当前口令相同。" }
+
+        SecretStore.set(newValue, Keys.password)
+        // 新口令写不进去就保持旧口令，避免出现"旧口令没了、新口令也没生效"的死局。
+        guard SecretStore.get(Keys.password) == newValue else {
+            return "新口令没能写入本机存储，旧口令保持不变。"
+        }
+
         var history = PasswordHistory.load()
         history.append(old)
         PasswordHistory.save(history)
-        SecretStore.set(newValue, Keys.password)
         password = newValue
         markPasswordUsed()
         return nil

@@ -23,6 +23,7 @@ struct TextCryptView: View {
     @State private var output = ""
     @State private var errorMessage: String?
     @State private var toast: String?
+    @State private var busy = false
 
     var body: some View {
         NavigationStack {
@@ -93,13 +94,16 @@ struct TextCryptView: View {
                     Button {
                         run()
                     } label: {
-                        Text(direction == .encode ? "加密这段文字" : "还原这段文字")
-                            .frame(maxWidth: .infinity)
+                        HStack(spacing: 8) {
+                            if busy { ProgressView().tint(.white) }
+                            Text(direction == .encode ? "加密这段文字" : "还原这段文字")
+                        }
+                        .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.glassProminent)
                     .tint(DSTheme.accent)
                     .controlSize(.large)
-                    .disabled(input.isEmpty)
+                    .disabled(input.isEmpty || busy)
 
                     if let errorMessage {
                         Text(errorMessage)
@@ -145,28 +149,47 @@ struct TextCryptView: View {
     }
 
     private func run() {
-        do {
-            switch direction {
-            case .encode:
-                let payload = try DSAECrypto.seal(plain: Data(input.utf8), password: vault.password, ext: "")
-                output = DSAECrypto.hexEncode(payload)
-                errorMessage = nil
-                showToast("已加密")
-            case .decode:
-                guard let payload = DSAECrypto.hexDecode(input) else {
-                    throw DSAEError.badFormat
+        // PBKDF2 要跑 12 万次，放主线程会卡住界面。
+        let isEncode = direction == .encode
+        let password = vault.password
+        let candidates = vault.encryptionCandidates()
+        let text = input
+
+        busy = true
+        errorMessage = nil
+        output = ""
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                if isEncode {
+                    let payload = try DSAECrypto.seal(plain: Data(text.utf8), password: password, ext: "")
+                    let hex = DSAECrypto.hexEncode(payload)
+                    DispatchQueue.main.async {
+                        self.busy = false
+                        self.output = hex
+                        self.showToast("已加密")
+                    }
+                } else {
+                    guard let payload = DSAECrypto.hexDecode(text) else {
+                        throw DSAEError.badFormat
+                    }
+                    let opened = try DSAECrypto.open(payload, candidates: candidates)
+                    guard let plain = String(data: opened.data, encoding: .utf8) else {
+                        throw DSAEError.badFormat
+                    }
+                    DispatchQueue.main.async {
+                        self.busy = false
+                        self.output = plain
+                        self.showToast("已还原")
+                    }
                 }
-                let opened = try DSAECrypto.open(payload, candidates: vault.encryptionCandidates())
-                guard let text = String(data: opened.data, encoding: .utf8) else {
-                    throw DSAEError.badFormat
+            } catch {
+                DispatchQueue.main.async {
+                    self.busy = false
+                    self.errorMessage = error.localizedDescription
+                    self.output = ""
                 }
-                output = text
-                errorMessage = nil
-                showToast("已还原")
             }
-        } catch {
-            errorMessage = error.localizedDescription
-            output = ""
         }
     }
 

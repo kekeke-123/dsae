@@ -30,6 +30,11 @@ struct FileCryptView: View {
     @State private var resultNote = ""
     @State private var verifyReport: VerifyResult?
 
+    @State private var folderMode = false
+    @State private var progressDone = 0
+    @State private var progressTotal = 0
+    @State private var batchReport: BatchReport?
+
     @State private var busy = false
     @State private var errorMessage: String?
     @State private var toast: String?
@@ -53,6 +58,7 @@ struct FileCryptView: View {
                         self.resultURL = nil
                         self.resultNote = ""
                         self.verifyReport = nil
+                        self.batchReport = nil
                         self.errorMessage = nil
                     }
 
@@ -95,15 +101,31 @@ struct FileCryptView: View {
                         GlassCard {
                             VStack(alignment: .leading, spacing: 12) {
                                 pickRow(
-                                    title: task == .encode ? "原始文件" : "DSAE 产物",
+                                    title: folderMode
+                                        ? "文件夹"
+                                        : (task == .encode ? "原始文件" : "DSAE 产物"),
                                     url: sourceURL
                                 ) {
                                     showSourcePicker = true
                                 }
 
-                                Text(task == .encode
-                                     ? "命名规则：file.txt → file.dsaetxt"
-                                     : "还原时会去掉 .dsae，恢复成原来的名字。")
+                                Toggle("整个文件夹（批量）", isOn: $folderMode)
+                                    .font(.footnote)
+                                    .onChange(of: folderMode) {
+                                        self.sourceURL = nil
+                                        self.resultURL = nil
+                                        self.resultNote = ""
+                                        self.batchReport = nil
+                                        self.errorMessage = nil
+                                    }
+
+                                Text(folderMode
+                                     ? (task == .encode
+                                        ? "把这层文件夹（含子文件夹）里的每个文件就地加密，原文件保留。"
+                                        : "把这层文件夹里所有 .dsae 产物就地还原，遇到同名文件会跳过不覆盖。")
+                                     : (task == .encode
+                                        ? "命名规则：file.txt → file.dsaetxt"
+                                        : "还原时会去掉 .dsae，恢复成原来的名字。"))
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
                             }
@@ -124,11 +146,31 @@ struct FileCryptView: View {
                     .controlSize(.large)
                     .disabled(!canRun || busy)
 
+                    if busy && folderMode && progressTotal > 0 {
+                        GlassCard {
+                            VStack(alignment: .leading, spacing: 8) {
+                                ProgressView(
+                                    value: Double(progressDone),
+                                    total: Double(max(progressTotal, 1))
+                                )
+                                .tint(DSTheme.accent)
+
+                                Text("已处理 \(progressDone) / \(progressTotal) 个文件")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+
                     if let errorMessage {
                         Text(errorMessage)
                             .font(.footnote)
                             .foregroundStyle(.red)
                             .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+
+                    if let batchReport {
+                        batchCard(batchReport)
                     }
 
                     if let report = verifyReport {
@@ -166,7 +208,7 @@ struct FileCryptView: View {
             .navigationBarTitleDisplayMode(.inline)
             .dsaeToast($toast)
             .sheet(isPresented: $showSourcePicker) {
-                DocumentPicker(mode: .importing) { url in
+                DocumentPicker(mode: folderMode ? .importingFolder : .importing) { url in
                     self.showSourcePicker = false
                     guard let url else { return }
                     self.sourceURL = url
@@ -283,11 +325,20 @@ struct FileCryptView: View {
     }
 
     private var actionTitle: String {
-        if busy { return "处理中…" }
+        if busy {
+            if folderMode && progressTotal > 0 {
+                return "处理中 \(progressDone)/\(progressTotal)"
+            }
+            return "处理中…"
+        }
         switch task {
-        case .encode: return randomMode ? "随机加密" : "加密文件"
-        case .restore: return "还原文件"
-        case .verify: return "验证文件"
+        case .encode:
+            if folderMode { return randomMode ? "随机加密整个文件夹" : "加密整个文件夹" }
+            return randomMode ? "随机加密" : "加密文件"
+        case .restore:
+            return folderMode ? "还原整个文件夹" : "还原文件"
+        case .verify:
+            return "验证文件"
         }
     }
 
@@ -323,10 +374,20 @@ struct FileCryptView: View {
         verifyReport = nil
         resultURL = nil
         resultNote = ""
+        batchReport = nil
+
+        if folderMode && task != .verify {
+            performBatch()
+            return
+        }
 
         switch task {
         case .encode:
             guard let url = sourceURL else { return }
+            if url.lastPathComponent.contains(".dsae") {
+                errorMessage = "这已经是 DSAE 产物，不能再加密一次。"
+                return
+            }
             let useRandom = randomMode
             let password = vault.password
             busy = true
@@ -414,6 +475,90 @@ struct FileCryptView: View {
                     }
                 }
             }
+        }
+    }
+
+    // MARK: - 批量
+
+    private func performBatch() {
+        guard let url = sourceURL else { return }
+        let password = vault.password
+        let candidates = vault.encryptionCandidates()
+        let isEncrypt = task == .encode
+        let random = randomMode
+
+        busy = true
+        progressDone = 0
+        progressTotal = 0
+        batchReport = nil
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            let report: BatchReport
+            if isEncrypt {
+                report = BatchCrypt.encrypt(folder: url, password: password, random: random) { done, total in
+                    DispatchQueue.main.async {
+                        self.progressDone = done
+                        self.progressTotal = total
+                    }
+                }
+            } else {
+                report = BatchCrypt.decrypt(folder: url, candidates: candidates) { done, total in
+                    DispatchQueue.main.async {
+                        self.progressDone = done
+                        self.progressTotal = total
+                    }
+                }
+            }
+
+            DispatchQueue.main.async {
+                self.busy = false
+                self.batchReport = report
+                self.showToast("成功 \(report.succeeded) · 跳过 \(report.skipped) · 失败 \(report.failed)")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func batchCard(_ report: BatchReport) -> some View {
+        GlassCard {
+            VStack(alignment: .leading, spacing: 12) {
+                Label(report.title, systemImage: "folder.fill")
+                    .font(.headline)
+                    .foregroundStyle(DSTheme.accent)
+
+                HStack(spacing: 22) {
+                    countPill("成功", report.succeeded, .green)
+                    countPill("跳过", report.skipped, .orange)
+                    countPill("失败", report.failed, .red)
+                }
+
+                if !report.notes.isEmpty {
+                    Divider()
+                    ForEach(Array(report.notes.enumerated()), id: \.offset) { _, note in
+                        Text(note)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+
+                if report.truncated {
+                    Text("单次最多处理 \(BatchCrypt.maxFiles) 个文件，剩下的再跑一次。")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                }
+            }
+        }
+    }
+
+    private func countPill(_ title: String, _ value: Int, _ color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("\(value)")
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(color)
+            Text(title)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
         }
     }
 

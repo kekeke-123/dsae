@@ -6,6 +6,7 @@ struct DocumentPicker: UIViewControllerRepresentable {
 
     enum Mode {
         case importing
+        case importingFolder
         case exporting([URL])
     }
 
@@ -21,6 +22,10 @@ struct DocumentPicker: UIViewControllerRepresentable {
         switch mode {
         case .importing:
             picker = UIDocumentPickerViewController(forOpeningContentTypes: [.data], asCopy: true)
+            picker.allowsMultipleSelection = false
+        case .importingFolder:
+            // 文件夹要原地读写，asCopy 对目录不适用。
+            picker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder], asCopy: false)
             picker.allowsMultipleSelection = false
         case .exporting(let urls):
             picker = UIDocumentPickerViewController(forExporting: urls, asCopy: true)
